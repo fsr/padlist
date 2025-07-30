@@ -29,7 +29,12 @@ try {
     die();
 }
 
-$query = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile  FROM "Notes" JOIN "Users" ON "Notes"."ownerId" = "Users".id WHERE (permission = \'freely\' OR permission = \'editable\' OR permission = \'limited\') AND strpos(content, \'tags: listed\')>0 ORDER BY "Notes"."updatedAt"  DESC';
+$query = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile
+          FROM "Notes"
+          JOIN "Users" ON "Notes"."ownerId" = "Users".id
+          WHERE (permission = \'freely\' OR permission = \'editable\' OR permission = \'limited\')
+            AND strpos(content, \'tags: listed\') > 0
+          ORDER BY "Notes"."updatedAt" DESC';
 try {
     $stmt = $dbh->query($query);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -41,8 +46,7 @@ try {
 function formatDateString($stringDate)
 {
     $datetime = DateTime::createFromFormat('Y-m-d H:i:s.uP', $stringDate);
-    $formattedDate = $datetime->format('d.m.Y H:i');
-    return $formattedDate;
+    return $datetime->format('d.m.Y H:i');
 }
 ?>
 
@@ -55,43 +59,72 @@ function formatDateString($stringDate)
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pad lister</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-
 </head>
 
 <body>
     <div class="container">
         <br>
-        <h6>Willkommen <?= $shortName ?> ✨</h6>
-        <table>
-            <tr>
-                <th>Titel</th>
-                <th>Owner</th>
-                <th>Last edit</th>
-            </tr>
+        <h6>Willkommen <?= htmlspecialchars($shortName, ENT_QUOTES, 'UTF-8') ?> ✨</h6>
 
-            <?php
-            foreach ($rows as $row) {
-            ?>
+        <small>
+            <label>
+                <input type="checkbox" id="hideUntitled" checked>
+                Unbenannte Pads ausblenden
+            </label>
+        </small>
+        <br>
+
+        <table id="padsTable">
+            <thead>
                 <tr>
-                    <td>
-                        <a href="https://pad.ifsr.de/<?= $row['shortid'] ?>"><?= $row['title'] ?></a>
-                    </td>
-                    <td>
-                        <?= json_decode($row['profile'])->username ?>
-                    </td>
-                    <td>
-                        <?= formatDateString($row['updatedAt']) ?>
-                    </td>
+                    <th>Titel</th>
+                    <th>Owner</th>
+                    <th>Last edit</th>
                 </tr>
-
-            <?php
-            }
-            ?>
+            </thead>
+            <tbody>
+                <?php foreach ($rows as $row): ?>
+                    <tr>
+                        <td class="pad-title">
+                            <a href="https://pad.jo11.dev/<?= htmlspecialchars($row['shortid'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
+                        </td>
+                        <td>
+                            <?= htmlspecialchars(json_decode($row['profile'])->username, ENT_QUOTES, 'UTF-8') ?>
+                        </td>
+                        <td>
+                            <?= formatDateString($row['updatedAt']) ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
         </table>
+
         <br><br>
         <a href="logout.php">Logout</a>
         <br><br>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkbox = document.getElementById('hideUntitled');
+            const table = document.getElementById('padsTable');
+            const rows = table.querySelectorAll('tbody tr');
+
+            function updateVisibility() {
+                rows.forEach(row => {
+                    const titleCell = row.querySelector('.pad-title a');
+                    const titleText = titleCell ? titleCell.textContent.trim() : '';
+                    // hide if checkbox checked AND title is exactly 'Untitled'
+                    row.style.display = (checkbox.checked && titleText === 'Untitled') ? 'none' : '';
+                });
+            }
+
+            // initial state
+            updateVisibility();
+            // toggle on change
+            checkbox.addEventListener('change', updateVisibility);
+        });
+    </script>
 </body>
 
 </html>
