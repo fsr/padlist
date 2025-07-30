@@ -29,15 +29,57 @@ try {
     die();
 }
 
-$query = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile
+// Get current user's ID from session using preferred_username
+$currentUserId = null;
+$preferredUsername = $_SESSION['preferred_username'] ?? '';
+
+if ($preferredUsername) {
+    $userQuery = 'SELECT id FROM "Users" WHERE profile::json->>\'username\' = :username';
+    $userStmt = $dbh->prepare($userQuery);
+    $userStmt->bindParam(':username', $preferredUsername);
+    $userStmt->execute();
+    $userResult = $userStmt->fetch(PDO::FETCH_ASSOC);
+    $currentUserId = $userResult['id'] ?? null;
+}
+
+// Query for public/listed pads
+$publicQuery = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile, \'public\' as pad_type
           FROM "Notes"
           JOIN "Users" ON "Notes"."ownerId" = "Users".id
           WHERE (permission = \'freely\' OR permission = \'editable\' OR permission = \'limited\')
             AND strpos(content, \'tags: listed\') > 0
           ORDER BY "Notes"."updatedAt" DESC';
+
+// Query for private pads of current user
+$privateQuery = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile, \'private\' as pad_type
+          FROM "Notes"
+          JOIN "Users" ON "Notes"."ownerId" = "Users".id
+          WHERE "Notes"."ownerId" = :userId
+            AND (permission = \'private\' OR strpos(content, \'tags: listed\') = 0 OR strpos(content, \'tags: listed\') IS NULL)
+          ORDER BY "Notes"."updatedAt" DESC';
+
 try {
-    $stmt = $dbh->query($query);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch public pads
+    $publicStmt = $dbh->query($publicQuery);
+    $publicRows = $publicStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fetch private pads if user ID is available
+    $privateRows = [];
+    if ($currentUserId) {
+        $privateStmt = $dbh->prepare($privateQuery);
+        $privateStmt->bindParam(':userId', $currentUserId);
+        $privateStmt->execute();
+        $privateRows = $privateStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // Combine all rows
+    $allRows = array_merge($publicRows, $privateRows);
+
+    // Sort by updatedAt DESC
+    usort($allRows, function($a, $b) {
+        return strtotime($b['updatedAt']) - strtotime($a['updatedAt']);
+    });
+
 } catch (PDOException $e) {
     echo "Error: " . $e->getMessage();
     die();
@@ -59,6 +101,12 @@ function formatDateString($stringDate)
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pad lister</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        .private-pad {
+            background-color: rgba(255, 193, 7, 0.1);
+        }
+
+    </style>
 </head>
 
 <body>
@@ -66,13 +114,21 @@ function formatDateString($stringDate)
         <br>
         <h6>Willkommen <?= htmlspecialchars($shortName, ENT_QUOTES, 'UTF-8') ?> ✨</h6>
 
-        <small>
-            <label>
-                <input type="checkbox" id="hideUntitled" checked>
-                Unbenannte Pads ausblenden
-            </label>
-        </small>
-        <br>
+        <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1rem;">
+            <small>
+                <label>
+                    <input type="checkbox" id="hideUntitled" checked>
+                    Unbenannte Pads ausblenden
+                </label>
+            </small>
+            <small>
+                <label>
+                    <input type="checkbox" id="showPrivate">
+                    Meine privaten Pads anzeigen
+                </label>
+            </small>
+        </div>
+
 
         <table id="padsTable">
             <thead>
@@ -83,8 +139,8 @@ function formatDateString($stringDate)
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($rows as $row): ?>
-                    <tr>
+                <?php foreach ($allRows as $row): ?>
+                    <tr class="<?= $row['pad_type'] === 'private' ? 'private-pad' : '' ?>" data-type="<?= htmlspecialchars($row['pad_type'], ENT_QUOTES, 'UTF-8') ?>">
                         <td class="pad-title">
                             <a href="https://pad.jo11.dev/<?= htmlspecialchars($row['shortid'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
                         </td>
@@ -106,7 +162,8 @@ function formatDateString($stringDate)
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const checkbox = document.getElementById('hideUntitled');
+            const hideUntitledCheckbox = document.getElementById('hideUntitled');
+            const showPrivateCheckbox = document.getElementById('showPrivate');
             const table = document.getElementById('padsTable');
             const rows = table.querySelectorAll('tbody tr');
 
@@ -114,15 +171,30 @@ function formatDateString($stringDate)
                 rows.forEach(row => {
                     const titleCell = row.querySelector('.pad-title a');
                     const titleText = titleCell ? titleCell.textContent.trim() : '';
-                    // hide if checkbox checked AND title is exactly 'Untitled'
-                    row.style.display = (checkbox.checked && titleText === 'Untitled') ? 'none' : '';
+                    const padType = row.getAttribute('data-type');
+
+                    let shouldHide = false;
+
+                    // Hide if checkbox checked AND title is exactly 'Untitled'
+                    if (hideUntitledCheckbox.checked && titleText === 'Untitled') {
+                        shouldHide = true;
+                    }
+
+                    // Hide private pads if showPrivate is not checked
+                    if (padType === 'private' && !showPrivateCheckbox.checked) {
+                        shouldHide = true;
+                    }
+
+                    row.style.display = shouldHide ? 'none' : '';
                 });
             }
 
-            // initial state
+            // Initial state - hide private pads by default
             updateVisibility();
-            // toggle on change
-            checkbox.addEventListener('change', updateVisibility);
+
+            // Toggle on change
+            hideUntitledCheckbox.addEventListener('change', updateVisibility);
+            showPrivateCheckbox.addEventListener('change', updateVisibility);
         });
     </script>
 </body>

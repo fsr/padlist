@@ -23,6 +23,7 @@ try {
 
     // Save user data and token in session or database here
     $_SESSION['user'] = $userData["name"];
+    $_SESSION['preferred_username'] = $userData["preferred_username"];
     $_SESSION['token'] = $token->getToken();
 
     // Redirect to index.php
