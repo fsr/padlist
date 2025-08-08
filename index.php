@@ -145,7 +145,7 @@ function formatDateString($stringDate)
                 <?php foreach ($allRows as $row): ?>
                     <tr class="<?= $row['pad_type'] === 'private' ? 'private-pad' : '' ?>" data-type="<?= htmlspecialchars($row['pad_type'], ENT_QUOTES, 'UTF-8') ?>">
                         <td class="pad-title">
-                            <a href="https://pad.jo11.dev/<?= htmlspecialchars($row['shortid'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
+                            <a href="https://pad.jo11.dev/<?= urlencode($row['shortid']) ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
                         </td>
                         <td>
                             <?= htmlspecialchars(json_decode($row['profile'])->username, ENT_QUOTES, 'UTF-8') ?>
