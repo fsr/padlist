@@ -152,9 +152,11 @@ function formatDateString($stringDate)
             </tbody>
         </table>
 
-        <br><br>
-        <a href="logout.php">Logout</a>
-        <br><br>
+        <?php if ($showLogout): ?>
+            <br><br>
+            <a href="logout.php">Logout</a>
+            <br><br>
+        <?php endif; ?>
     </div>
 
     <script>

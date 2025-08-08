@@ -18,3 +18,5 @@ $dbUser = 'hedgedoc';
 $dbPass = null;
 
 $hedgedocUrl = 'https://pad.your-domain.com';
+
+$showLogout = false;
