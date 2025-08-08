@@ -1,10 +1,13 @@
 <?php
+require 'vendor/autoload.php';
+
+use League\OAuth2\Client\Provider\GenericProvider;
+
 session_start();
 
-// error_reporting(E_ALL);
-// ini_set('display_errors', 1);
+require_once 'config.php';
 
-$provider = require 'providerConfig.php';
+$provider = new GenericProvider($providerConfig);
 
 // Check if user is not logged in
 if (!isset($_SESSION['user'])) {
@@ -18,16 +21,7 @@ if (!isset($_SESSION['user'])) {
 
 $shortName = explode(" ", $_SESSION['user'])[0];
 
-$host = '/run/postgresql';
-$dbname = 'hedgedoc';
-$user = 'hedgedoc';
-
-try {
-    $dbh = new PDO("pgsql:host=$host;dbname=$dbname", $user);
-} catch (PDOException $e) {
-    echo "Error: " . $e->getMessage();
-    die();
-}
+$dbh = new PDO("pgsql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
 
 // Get current user's ID from session using preferred_username
 $currentUserId = null;
@@ -145,7 +139,7 @@ function formatDateString($stringDate)
                 <?php foreach ($allRows as $row): ?>
                     <tr class="<?= $row['pad_type'] === 'private' ? 'private-pad' : '' ?>" data-type="<?= htmlspecialchars($row['pad_type'], ENT_QUOTES, 'UTF-8') ?>">
                         <td class="pad-title">
-                            <a href="https://pad.jo11.dev/<?= urlencode($row['shortid']) ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
+                            <a href="<?= $hedgedocUrl ?>/<?= urlencode($row['shortid']) ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
                         </td>
                         <td>
                             <?= htmlspecialchars(json_decode($row['profile'])->username, ENT_QUOTES, 'UTF-8') ?>
