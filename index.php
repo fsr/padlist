@@ -55,7 +55,7 @@ $privateQuery = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "
           FROM "Notes"
           JOIN "Users" ON "Notes"."ownerId" = "Users".id
           WHERE "Notes"."ownerId" = :userId
-            AND (permission = \'private\' OR strpos(content, \'tags: listed\') = 0 OR strpos(content, \'tags: listed\') IS NULL)
+            AND permission = \'private\'
           ORDER BY "Notes"."updatedAt" DESC';
 
 try {
