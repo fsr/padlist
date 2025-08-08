@@ -88,7 +88,10 @@ try {
 function formatDateString($stringDate)
 {
     $datetime = DateTime::createFromFormat('Y-m-d H:i:s.uP', $stringDate);
-    return $datetime->format('d.m.Y H:i');
+    if ($datetime) {
+        return $datetime->format('d.m.Y H:i');
+    }
+    return $stringDate;
 }
 ?>
 
