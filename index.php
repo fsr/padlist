@@ -1,10 +1,13 @@
 <?php
+require 'vendor/autoload.php';
+
+use League\OAuth2\Client\Provider\GenericProvider;
+
 session_start();
 
-// error_reporting(E_ALL);
-// ini_set('display_errors', 1);
+require_once 'config.php';
 
-$provider = require 'providerConfig.php';
+$provider = new GenericProvider($providerConfig);
 
 // Check if user is not logged in
 if (!isset($_SESSION['user'])) {
@@ -18,21 +21,59 @@ if (!isset($_SESSION['user'])) {
 
 $shortName = explode(" ", $_SESSION['user'])[0];
 
-$host = '/run/postgresql';
-$dbname = 'hedgedoc';
-$user = 'hedgedoc';
+$dbh = new PDO("pgsql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
 
-try {
-    $dbh = new PDO("pgsql:host=$host;dbname=$dbname", $user);
-} catch (PDOException $e) {
-    echo "Error: " . $e->getMessage();
-    die();
+// Get current user's ID from session using preferred_username
+$currentUserId = null;
+$preferredUsername = $_SESSION['preferred_username'] ?? '';
+
+if ($preferredUsername) {
+    $userQuery = 'SELECT id FROM "Users" WHERE profile::json->>\'username\' = :username';
+    $userStmt = $dbh->prepare($userQuery);
+    $userStmt->bindParam(':username', $preferredUsername);
+    $userStmt->execute();
+    $userResult = $userStmt->fetch(PDO::FETCH_ASSOC);
+    $currentUserId = $userResult['id'] ?? null;
 }
 
-$query = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile  FROM "Notes" JOIN "Users" ON "Notes"."ownerId" = "Users".id WHERE (permission = \'freely\' OR permission = \'editable\' OR permission = \'limited\') AND strpos(content, \'tags: listed\')>0 ORDER BY "Notes"."updatedAt"  DESC';
+// Query for public/listed pads
+$publicQuery = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile, \'public\' as pad_type
+          FROM "Notes"
+          JOIN "Users" ON "Notes"."ownerId" = "Users".id
+          WHERE (permission = \'freely\' OR permission = \'editable\' OR permission = \'limited\')
+            AND strpos(content, \'tags: listed\') > 0
+          ORDER BY "Notes"."updatedAt" DESC';
+
+// Query for private pads of current user
+$privateQuery = 'SELECT "Notes".title, "Notes"."updatedAt", "Notes"."shortid", "Users".profile, \'private\' as pad_type
+          FROM "Notes"
+          JOIN "Users" ON "Notes"."ownerId" = "Users".id
+          WHERE "Notes"."ownerId" = :userId
+            AND permission = \'private\'
+          ORDER BY "Notes"."updatedAt" DESC';
+
 try {
-    $stmt = $dbh->query($query);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch public pads
+    $publicStmt = $dbh->query($publicQuery);
+    $publicRows = $publicStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fetch private pads if user ID is available
+    $privateRows = [];
+    if ($currentUserId) {
+        $privateStmt = $dbh->prepare($privateQuery);
+        $privateStmt->bindParam(':userId', $currentUserId);
+        $privateStmt->execute();
+        $privateRows = $privateStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // Combine all rows
+    $allRows = array_merge($publicRows, $privateRows);
+
+    // Sort by updatedAt DESC
+    usort($allRows, function($a, $b) {
+        return strtotime($b['updatedAt']) - strtotime($a['updatedAt']);
+    });
+
 } catch (PDOException $e) {
     echo "Error: " . $e->getMessage();
     die();
@@ -41,8 +82,10 @@ try {
 function formatDateString($stringDate)
 {
     $datetime = DateTime::createFromFormat('Y-m-d H:i:s.uP', $stringDate);
-    $formattedDate = $datetime->format('d.m.Y H:i');
-    return $formattedDate;
+    if ($datetime) {
+        return $datetime->format('d.m.Y H:i');
+    }
+    return $stringDate;
 }
 ?>
 
@@ -55,43 +98,104 @@ function formatDateString($stringDate)
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pad lister</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        .private-pad {
+            background-color: rgba(255, 193, 7, 0.1);
+        }
 
+    </style>
 </head>
 
 <body>
     <div class="container">
         <br>
-        <h6>Willkommen <?= $shortName ?> ✨</h6>
-        <table>
-            <tr>
-                <th>Titel</th>
-                <th>Owner</th>
-                <th>Last edit</th>
-            </tr>
+        <h6>Willkommen <?= htmlspecialchars($shortName, ENT_QUOTES, 'UTF-8') ?> ✨</h6>
 
-            <?php
-            foreach ($rows as $row) {
-            ?>
+        <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1rem;">
+            <small>
+                <label>
+                    <input type="checkbox" id="hideUntitled" checked>
+                    Unbenannte Pads ausblenden
+                </label>
+            </small>
+            <small>
+                <label>
+                    <input type="checkbox" id="showPrivate">
+                    Meine privaten Pads anzeigen
+                </label>
+            </small>
+        </div>
+
+
+        <table id="padsTable">
+            <thead>
                 <tr>
-                    <td>
-                        <a href="https://pad.ifsr.de/<?= $row['shortid'] ?>"><?= $row['title'] ?></a>
-                    </td>
-                    <td>
-                        <?= json_decode($row['profile'])->username ?>
-                    </td>
-                    <td>
-                        <?= formatDateString($row['updatedAt']) ?>
-                    </td>
+                    <th>Titel</th>
+                    <th>Owner</th>
+                    <th>Last edit</th>
                 </tr>
-
-            <?php
-            }
-            ?>
+            </thead>
+            <tbody>
+                <?php foreach ($allRows as $row): ?>
+                    <tr class="<?= $row['pad_type'] === 'private' ? 'private-pad' : '' ?>" data-type="<?= htmlspecialchars($row['pad_type'], ENT_QUOTES, 'UTF-8') ?>">
+                        <td class="pad-title">
+                            <a href="<?= $hedgedocUrl ?>/<?= urlencode($row['shortid']) ?>"><?= htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8') ?></a>
+                        </td>
+                        <td>
+                            <?= htmlspecialchars(json_decode($row['profile'])->username, ENT_QUOTES, 'UTF-8') ?>
+                        </td>
+                        <td>
+                            <?= formatDateString($row['updatedAt']) ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
         </table>
-        <br><br>
-        <a href="logout.php">Logout</a>
-        <br><br>
+
+        <?php if ($showLogout): ?>
+            <br><br>
+            <a href="logout.php">Logout</a>
+            <br><br>
+        <?php endif; ?>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const hideUntitledCheckbox = document.getElementById('hideUntitled');
+            const showPrivateCheckbox = document.getElementById('showPrivate');
+            const table = document.getElementById('padsTable');
+            const rows = table.querySelectorAll('tbody tr');
+
+            function updateVisibility() {
+                rows.forEach(row => {
+                    const titleCell = row.querySelector('.pad-title a');
+                    const titleText = titleCell ? titleCell.textContent.trim() : '';
+                    const padType = row.getAttribute('data-type');
+
+                    let shouldHide = false;
+
+                    // Hide if checkbox checked AND title is exactly 'Untitled'
+                    if (hideUntitledCheckbox.checked && titleText === 'Untitled') {
+                        shouldHide = true;
+                    }
+
+                    // Hide private pads if showPrivate is not checked
+                    if (padType === 'private' && !showPrivateCheckbox.checked) {
+                        shouldHide = true;
+                    }
+
+                    row.style.display = shouldHide ? 'none' : '';
+                });
+            }
+
+            // Initial state - hide private pads by default
+            updateVisibility();
+
+            // Toggle on change
+            hideUntitledCheckbox.addEventListener('change', updateVisibility);
+            showPrivateCheckbox.addEventListener('change', updateVisibility);
+        });
+    </script>
 </body>
 
 </html>

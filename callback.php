@@ -1,11 +1,13 @@
 <?php
-#error_reporting(E_ALL);
-#ini_set('display_errors', 1);
+require 'vendor/autoload.php';
 
+use League\OAuth2\Client\Provider\GenericProvider;
 
 session_start();
 
-$provider = require 'providerConfig.php';
+require_once 'config.php';
+
+$provider = new GenericProvider($providerConfig);
 
 try {
     if (empty($_GET['state']) || ($_GET['state'] !== $_SESSION['oauth2state'])) {
@@ -23,6 +25,7 @@ try {
 
     // Save user data and token in session or database here
     $_SESSION['user'] = $userData["name"];
+    $_SESSION['preferred_username'] = $userData["preferred_username"];
     $_SESSION['token'] = $token->getToken();
 
     // Redirect to index.php
